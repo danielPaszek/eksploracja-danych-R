@@ -1,0 +1,194 @@
+---
+title: "Lab4"
+author: "Damiel Paszek"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+devtools::install_github("rstudio/EDAWR")
+devtools::install_github("kassambara/ggcorrplot")
+devtools::install_github("ropensci/plotly")
+
+library(DT)
+library(EDAWR)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(plotly)
+prettyTable <- function(table_df, round_digits=2) {
+    DT::datatable(table_df, style="bootstrap", filter = "top", rownames = FALSE, extensions = "Buttons", options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print'))) %>% formatRound(names(dplyr::select_if(table_df, is.numeric)), round_digits)
+}
+```
+Summary
+```{r executiveSummary}
+
+```
+```{r data, cache=TRUE}
+data <- read.csv('./mp_batteries.csv')
+prettyTable(data)
+```
+Sprawdźmy czy potrzebne będzie usunięcie wartości pustych.
+```{r cleanup}
+for (name in colnames(data)){
+  isMissing <- sum(is.na(data[[name]]))
+  if (isMissing == 0) {
+    print(paste('Brak wartości pustych dla', name))
+  } else {
+     print(paste(name, 'posiada :', isMissing, 'wartości puste', sep=' '))
+  }
+}
+```
+Nasz zestaw nie zawiera wartości pustych.
+
+Zbiór danych składa się z 4351 rekordów. Każdy rekord posiada 12 wartości numerycznych, 4 tekstowe i id. 
+Podsumujemy wartości nienumeryczne. Jedyna wartość, która nas będzie interesować to ilość unikatowych wartości.
+
+```{r summary1}
+textSummary <- data %>% 
+  select(Battery.Formula:Formula.Discharge) %>%
+  summarise(across(everything(), n_distinct, .names = 'unique {.col}'))
+textSummary %>% knitr::kable()
+```
+Jedyna przydatna dla nas kolumna to Working.Ion.
+
+Podsumujmy teraz wartości numeryczne.
+
+```{r summary_num}
+summaryDf <- data.frame(
+  mean = numeric(),
+  median = numeric(),
+  min = numeric(),
+  max = numeric(),
+  sd = numeric()
+)
+colNames <- data %>%
+  select(Max.Delta.Volume:Max.Voltage.Step) %>% colnames()
+for (col in colNames) {
+  column <- data[col]
+  res <- column %>% summarise(
+    across(everything(), 
+           c(mean, median, min, max, sd)
+     )
+    )
+  colnames(res) <- c('mean', 'median', 'min', 'max', 'sd')
+  summaryDf <- rbind(summaryDf, res)
+}
+rownames(summaryDf) <- colNames
+summaryDf %>% knitr::kable()
+```
+
+Przyjrzyjmy się dokładniej rozkładom wartości numerycznym. 
+Wszystkie przypominają rozkład normalny, który jest silnie skoncentrowany wokół mediany.
+Większość rozkładów posiada kilka wartości skrajnych.
+Working.Ion ma dominującą wartość - Li.
+```{r histograms}
+excludeHist <- c("Battery.ID","Battery.Formula", "Formula.Charge", "Formula.Discharge", "Working.Ion" ,"Max.Delta.Volume")
+
+histData <- data[ , !(names(data) %in% excludeHist)]
+colNames <- histData %>% colnames()
+
+# 
+
+for (column in colNames) {
+  minVal <- summaryDf[column, 'min']
+  maxVal <- summaryDf[column, 'max']
+  bins <- (maxVal - minVal) / 100
+  graph <- histData %>% ggplot(aes_string(x = column)) + 
+    geom_histogram(fill = 'blue', binwidth = bins) +
+    labs(title = paste(column, ' histogram'), x = column, y = 'Frequency') +
+    theme_minimal()
+  plot(graph)
+}
+graph <- data %>% ggplot(aes(x = Max.Delta.Volume)) +
+  geom_histogram(binwidth = 0.01, fill = 'blue', ) +
+  labs(title = 'Histogram of Max.Delta.Volume', x = 'Max.Delta.Volume', y = 'Frequency') +
+  xlim(-0.1, 1.5) + theme_minimal()
+plot(graph)
+
+graph <- data.frame(table(data$Working.Ion)) %>% ggplot(aes(x = Var1, y = Freq)) + 
+    geom_col(fill = 'blue') +
+    labs(title = 'Working Ion histogram', y = 'Frequency', x ='Ion') +
+    theme_minimal()
+plot(graph)
+
+
+```
+
+
+Przyjrzyjmy się korelacjom między wartościami.
+Występuje kilka korelacji wartych dalszej analizy - Charge/Discharge pairs, energy, capacity.
+
+```{r corelation}
+cor_matrix <- cor(data %>% select_if(is.numeric), method = "pearson")
+cor_data <- melt(cor_matrix)
+corr <- cor_data %>%
+  ggplot(aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0,
+    limits = c(-1, 1)
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  coord_fixed() +
+  labs(title = "Correlation Matrix", x = "Fields", y = "Fields")
+
+#ggplotly(corr)
+plot(corr)
+```
+Zależność pomiędzy Average Voltage i Gravimetric Energy jest gorzej widoczna przez obecność wartości skrajnych na wykresie. Po usunięciu outlierów widzimy 
+```{r cor2}
+print(paste('Korelacja dla Average.Voltage i Gravimetric.Energy', cor_matrix['Average.Voltage', 'Gravimetric.Energy']))
+print(paste('Korelacja dla Atomic.Fraction.Discharge i Gravimetric.Capacity', cor_matrix['Atomic.Fraction.Discharge', 'Gravimetric.Capacity']))
+print(paste('Korelacja dla Atomic.Fraction.Discharge i Volumetric.Capacity', cor_matrix['Atomic.Fraction.Discharge', 'Volumetric.Capacity']))
+data %>% ggplot(aes(x = Average.Voltage, y=Gravimetric.Energy)) +
+  geom_point(color = "blue") +  # Scatter points
+  geom_smooth(method = "lm") +  # Regression line
+  labs(title = "Average Voltage and Gravimetric Energy",
+       x = "Avg. Voltage",
+       y = "Gravimetric Energy") +
+  theme_minimal()
+data %>% 
+  filter(Average.Voltage < 30) %>% 
+  ggplot(aes(x = Average.Voltage, y=Gravimetric.Energy)) +
+  geom_point(color = "blue") +  # Scatter points
+  geom_smooth(method = "lm") +  # Regression line
+  labs(title = "Average Voltage and Gravimetric Energy without outliers",
+       x = "Avg. Voltage",
+       y = "Gravimetric Energy") +
+  theme_minimal()
+
+data %>% ggplot(aes(x = Atomic.Fraction.Discharge, y=Gravimetric.Capacity)) +
+  geom_point(color = "blue") +  # Scatter points
+  geom_smooth() +  # Regression line
+  geom_smooth(method = "lm") +  # Regression line
+  labs(title = "Atomic Fraction Discharge and Gravimetric Capacity",
+       x = "Atomic Fraction Discharge",
+       y = "Gravimetric Capacity") +
+  theme_minimal()
+
+data %>% ggplot(aes(x = Atomic.Fraction.Discharge, y=Volumetric.Capacity)) +
+  geom_point(color = "blue") +  # Scatter points
+  geom_smooth(method = "lm") +  # Regression line
+  labs(title = "Atomic Fraction Discharge and Volumetric Capacity",
+       x = "Atomic Fraction Discharge",
+       y = "Volumetric Capacity") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
