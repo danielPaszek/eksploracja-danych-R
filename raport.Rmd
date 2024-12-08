@@ -8,15 +8,18 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 devtools::install_github("rstudio/EDAWR")
-devtools::install_github("kassambara/ggcorrplot")
+#devtools::install_github("kassambara/ggcorrplot")
 devtools::install_github("ropensci/plotly")
-
+devtools::install_github("drizopoulos/ltm")
+library(stats)
+library(ltm)
 library(DT)
 library(EDAWR)
 library(dplyr)
 library(ggplot2)
 library(reshape2)
 library(plotly)
+
 prettyTable <- function(table_df, round_digits=2) {
     DT::datatable(table_df, style="bootstrap", filter = "top", rownames = FALSE, extensions = "Buttons", options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print'))) %>% formatRound(names(dplyr::select_if(table_df, is.numeric)), round_digits)
 }
@@ -123,7 +126,7 @@ Występuje kilka korelacji wartych dalszej analizy - Charge/Discharge pairs, ene
 ```{r corelation}
 cor_matrix <- cor(data %>% select_if(is.numeric), method = "pearson")
 cor_data <- melt(cor_matrix)
-corr <- cor_data %>%
+graph <- cor_data %>%
   ggplot(aes(x = Var1, y = Var2, fill = value)) +
   geom_tile() +
   scale_fill_gradient2(
@@ -139,13 +142,15 @@ corr <- cor_data %>%
   labs(title = "Correlation Matrix", x = "Fields", y = "Fields")
 
 #ggplotly(corr)
-plot(corr)
+plot(graph)
 ```
-Zależność pomiędzy Average Voltage i Gravimetric Energy jest gorzej widoczna przez obecność wartości skrajnych na wykresie. Po usunięciu outlierów widzimy 
-```{r cor2}
+Zależność pomiędzy Average Voltage i Gravimetric Energy jest gorzej widoczna przez obecność wartości skrajnych na wykresie.
+```{r cor1, echo=FALSE, results='markup'}
 print(paste('Korelacja dla Average.Voltage i Gravimetric.Energy', cor_matrix['Average.Voltage', 'Gravimetric.Energy']))
 print(paste('Korelacja dla Atomic.Fraction.Discharge i Gravimetric.Capacity', cor_matrix['Atomic.Fraction.Discharge', 'Gravimetric.Capacity']))
 print(paste('Korelacja dla Atomic.Fraction.Discharge i Volumetric.Capacity', cor_matrix['Atomic.Fraction.Discharge', 'Volumetric.Capacity']))
+```
+```{r cor2}
 data %>% ggplot(aes(x = Average.Voltage, y=Gravimetric.Energy)) +
   geom_point(color = "blue") +  # Scatter points
   geom_smooth(method = "lm") +  # Regression line
@@ -179,6 +184,15 @@ data %>% ggplot(aes(x = Atomic.Fraction.Discharge, y=Volumetric.Capacity)) +
        x = "Atomic Fraction Discharge",
        y = "Volumetric Capacity") +
   theme_minimal()
+
+#colNames <- data %>% select_if(is.numeric) %>% colnames()
+
+#y <- factor(data$Working.Ion)
+
+#for (col in colNames) {
+#  print(col)
+#  print(biserial.cor(data$Average.Voltage, y))
+#}
 ```
 
 
